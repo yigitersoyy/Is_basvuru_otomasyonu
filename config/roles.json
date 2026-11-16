@@ -1,0 +1,7 @@
+{
+  "applied_ai": {"title": "Junior AI Engineer", "tags": ["python", "rag", "llm", "pytorch", "fastapi", "document intelligence"]},
+  "rag_llm": {"title": "Junior RAG / LLM Engineer", "tags": ["rag", "ollama", "langchain", "faiss", "chroma", "python", "llm"]},
+  "automation": {"title": "AI Automation Engineer", "tags": ["n8n", "power automate", "copilot studio", "power apps", "sharepoint", "automation"]},
+  "data_bi": {"title": "Junior Data / BI Analyst", "tags": ["sql", "python", "etl", "power bi", "pandas", "reporting"]},
+  "graduate_ml": {"title": "Graduate Applied ML Engineer", "tags": ["pytorch", "bilstm", "diffusion", "transfer learning", "research"]}
+}

@@ -1,0 +1,108 @@
+name: career-outreach
+services:
+  postgres:
+    image: postgres:17.7-bookworm
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/configure.py first}
+      CAREER_DB_PASSWORD: ${CAREER_DB_PASSWORD:?Run scripts/configure.py first}
+      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD:?Run scripts/configure.py first}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/01-databases.sh:/docker-entrypoint-initdb.d/01-databases.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [private]
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://career:${CAREER_DB_PASSWORD}@postgres:5432/career
+      API_KEY: ${API_KEY:?Run scripts/configure.py first}
+      ARTIFACT_DIR: /app/artifacts
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      MAIL_TRANSPORT: mailpit
+      MAIL_FROM: ${MAIL_FROM:-candidate@example.test}
+    ports: [127.0.0.1:8000:8000]
+    volumes: [artifacts:/app/artifacts]
+    depends_on:
+      postgres: {condition: service_healthy}
+      gotenberg: {condition: service_started}
+      mailpit: {condition: service_started}
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks: [private, outbound]
+  gotenberg:
+    image: gotenberg/gotenberg:8.25.1
+    command: [gotenberg, --api-timeout=60s]
+    networks: [private]
+    restart: unless-stopped
+  mailpit:
+    image: axllent/mailpit:v1.27.10
+    environment:
+      MP_MAX_MESSAGES: 100
+    ports: [127.0.0.1:8025:8025]
+    networks: [private]
+    restart: unless-stopped
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.32.5
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?Run scripts/configure.py first}
+      N8N_HOST: localhost
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_SECURE_COOKIE: 'false'
+      GENERIC_TIMEZONE: Europe/Istanbul
+      N8N_DIAGNOSTICS_ENABLED: 'false'
+      N8N_PERSONALIZATION_ENABLED: 'false'
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_MAX_AGE: 336
+    ports: [127.0.0.1:5678:5678]
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [private, outbound]
+    restart: unless-stopped
+  ollama:
+    image: ollama/ollama:0.13.5
+    profiles: [ai]
+    environment:
+      OLLAMA_NO_CLOUD: '1'
+      OLLAMA_NUM_PARALLEL: '1'
+      OLLAMA_MAX_LOADED_MODELS: '1'
+    volumes: [ollama_data:/root/.ollama]
+    networks: [private, outbound]
+    restart: unless-stopped
+  appsmith:
+    image: appsmith/appsmith-ce:v1.98
+    profiles: [ui]
+    ports: [127.0.0.1:8080:80]
+    volumes: [appsmith_data:/appsmith-stacks]
+    networks: [private, outbound]
+    restart: unless-stopped
+volumes:
+  postgres_data:
+  artifacts:
+  n8n_data:
+  ollama_data:
+  appsmith_data:
+networks:
+  private:
+    internal: true
+  outbound:

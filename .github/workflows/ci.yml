@@ -1,0 +1,18 @@
+name: Validate local workspace
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.9.9'
+      - run: uv sync --locked
+      - run: uv run ruff check services migrations scripts tests
+      - run: uv run ruff format --check services migrations scripts tests
+      - run: uv run pytest -q
+      - run: uv run python scripts/generate_workflows.py && git diff --exit-code n8n/workflows
+      - run: uv run python scripts/configure.py && docker compose config --quiet

@@ -1,0 +1,76 @@
+{
+  "id": "career-prepare-package",
+  "name": "Career Prepare Package",
+  "active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Authenticated request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "career-prepare-package",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "career-prepare-package",
+        "authentication": "headerAuth",
+        "responseMode": "lastNode"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "career-inbound",
+          "name": "Career inbound key"
+        }
+      }
+    },
+    {
+      "id": "api",
+      "name": "Career API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/v1/packages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 240000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "career-api",
+          "name": "Career API key"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Authenticated request": {
+      "main": [
+        [
+          {
+            "node": "Career API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Istanbul",
+    "saveDataSuccessExecution": "none"
+  }
+}
