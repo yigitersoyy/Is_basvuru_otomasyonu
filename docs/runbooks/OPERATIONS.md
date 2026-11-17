@@ -23,7 +23,7 @@ PostgreSQL, Mailpit SMTP, Gotenberg and Ollama have no public host bindings. Do 
 
 ## Manual checkpoint before upgrades
 
-Automated encrypted backup/restore is a later milestone. Until it exists, avoid storing the only copy of important material in this increment. For a controlled local checkpoint:
+Use scripts/backup.py and scripts/restore.py as described in BACKUP.md for encrypted checkpoints and isolated restore verification. The following manual procedure remains available for diagnostics:
 
 1. Stop `api` and `n8n` to quiesce writes. If Appsmith is enabled, stop it too.
 2. Make a PostgreSQL dump of both `career` and `n8n` using `pg_dump -Fc` inside `postgres`. Store byte output using a binary-safe tool; Windows PowerShell 5 redirection can corrupt binary output. A safe approach is `docker compose exec -T postgres pg_dump -U career -Fc -f /tmp/career.dump career`, followed by `docker compose cp postgres:/tmp/career.dump <private-backup-directory>`; repeat using the n8n role/database.
@@ -31,7 +31,7 @@ Automated encrypted backup/restore is a later milestone. Until it exists, avoid 
 4. Encrypt the checkpoint using an existing trusted local encryption tool and store it on independent storage. A plain dump on the same drive is not the architecture's encrypted independent backup.
 5. Resume the services and test their health. Keep an upgrade checkpoint until the upgraded state is verified.
 
-For restore, start in paused test mode, restore the matching database/artifact/key versions, and verify hashes before resuming. When Gmail support is later introduced, provider reconciliation must occur before outbound work resumes; the current release has no Gmail restore reconciliation.
+For restore, start in paused test mode, restore the matching database/artifact/key versions, and verify hashes before resuming. Gmail synchronization and uncertain-send reconciliation must succeed before outbound work resumes. Restored pending entries require review; do not blindly requeue them.
 
 ## Failure states
 
@@ -44,3 +44,14 @@ For restore, start in paused test mode, restore the matching database/artifact/k
 - Disk pressure: pause, stop nonessential optional services and inspect runtime storage. Do not delete database volumes to make a build succeed.
 
 Generated orphan artifact directories from failed packages can be removed manually only after confirming their IDs are not referenced by the database. Automatic retention/deletion is not implemented yet.
+
+
+## Conservative retention
+
+`POST /v1/operations/retention` previews orphan artifact directories older than one day and raw company research snapshots older than 90 days. `?dry_run=false` applies that cleanup. Referenced original CVs/packages, citations/hashes and suppression records remain. The n8n maintenance workflow previews by default; it does not silently delete user data. Restic snapshots have independent retention and may retain locally deleted data.
+
+## Cloud-specific setup
+
+Managed cloud checkouts can have restrictive file modes. Make the PostgreSQL initialization script readable/executable (`chmod 755 infra/postgres/01-databases.sh`) before first startup. A partially initialized volume with missing application roles is not repaired by deleting user volumes: inspect roles/database state first and complete only demonstrably missing initialization steps. API/workspace Dockerfiles now make application files readable by their non-root users.
+
+If the cloud HTTPS proxy uses a managed CA, supply its trusted CA bundle through an external build context and PIP_CERT; do not use trusted-host, disable TLS or change artifact hashes. Internal service names belong in NO_PROXY/no_proxy. This is implemented in the onboarding configuration, without storing certificates or secrets in Git.

@@ -51,16 +51,19 @@ Open the workspace to upload the CV, review facts, add researched opportunities/
 For public company/vacancy discovery, run `docker compose --profile research up -d searxng` and use the workspace search. Official-page research only fetches HTTPS sources on the selected company domain; public IPs are pinned, redirects are blocked and responses are bounded. Published addresses require review before contact confirmation.
 
 
-### Optional local model on your RTX 4060
+### Local model and optional AI API
+
+Ollama is not assumed installed. On Windows, run:
 
 ```powershell
-docker compose -f compose.yaml -f compose.gpu.yaml --profile ai up -d ollama
-docker compose exec ollama ollama pull qwen3:8b
+powershell -ExecutionPolicy Bypass -File scripts/setup-ollama.ps1 -Install
 ```
 
-Verify actual VRAM with `nvidia-smi`. The 8B model may need a shorter context or a 4B replacement if GPU memory is insufficient. Set `OLLAMA_MODEL=qwen3:4b` in `.env`, pull that model, and recreate `api` when switching. Inference concurrency is one; cloud features are disabled. The model only proposes facts: it never approves or sends content. Manual fact entry works without a GPU or model.
+This detects/installs Ollama, reports actual GPU/VRAM when available, pulls the exact requested `qwen3.5:9b` artifact and verifies metadata, digest and structured inference. It stops rather than substituting another model. Qwen3.5-9B is an official released model; its exact Ollama artifact and Windows GPU behavior remain pending local verification because this cloud cannot access the Ollama registry or your hardware.
 
-For CPU-only inference, use `docker compose --profile ai up -d ollama`. The optional legacy Appsmith builder is available with `docker compose --profile legacy-appsmith up -d appsmith` at port 8081; the default Streamlit workspace needs no page configuration.
+Select local inference or an explicitly enabled OpenAI-compatible API under **AI settings**. No automatic provider fallback exists. Store API keys only in private local `.env`. See [AI setup](docs/runbooks/AI.md) and [campaign/application operation](docs/runbooks/CAMPAIGNS.md).
+
+The optional container model uses `compose.gpu.yaml`; do not run native and container models simultaneously. Appsmith remains an optional legacy profile.
 
 ## Verification
 

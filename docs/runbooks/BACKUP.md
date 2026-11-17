@@ -18,3 +18,18 @@ Restore into an isolated local copy first:
 6. Check `restic ... check` periodically. Test restore monthly; a successful backup command alone is not evidence that restoration works.
 
 Independent storage and the restic password are user-supplied prerequisites. This development environment has neither, so no encrypted backup/restore drill is claimed. Old snapshots retain deleted data until retention/prune is applied deliberately with restic.
+
+
+## Automated isolated restore verification
+
+New checkpoints include a SHA-256 manifest for database dumps, artifacts, n8n state and recovery configuration. After a checkpoint:
+
+```powershell
+python scripts/restore.py --repository E:\CareerBackups --password-file C:\Private\restic-password.txt --snapshot EXACT_SNAPSHOT_ID --target C:\Private\restore-drill
+```
+
+Use an empty protected target. The tool checks restic integrity, restores only the checkpoint subtree, verifies every manifest hash, restores both dumps into uniquely named temporary PostgreSQL databases and checks all package artifact hashes against the restored career database. It drops only those temporary databases afterward. It never replaces production databases or starts a sender. Restored files contain plaintext recovery keys; protect/remove the drill target when no longer needed.
+
+This verification passed in the cloud using synthetic data and an encrypted restic repository on the same cloud disk. It proves the tested restore path, not independent-drive disaster recovery or Windows filesystem behavior. Provision independent storage locally before relying on backups.
+
+During the production restore procedure above, set live sending off, persist the global pause and hold all restored pending messages for Gmail reconciliation before any resume. Never treat an old `queued` row as authorization to resend after restoring an older snapshot. Run the independent checkpoint before replacing current data.

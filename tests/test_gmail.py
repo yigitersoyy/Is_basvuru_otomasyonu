@@ -178,3 +178,26 @@ def test_outside_window_does_not_send(client, live, monkeypatch):
     monkeypatch.setattr(gmail, "now", lambda: datetime(2026, 11, 21, 11, 0, tzinfo=UTC))
     assert client.post("/v1/gmail/dispatch").json()["status"] == "outside_send_window"
     assert not any(method == "POST" for method, path, kwargs in FakeGmail.calls)
+
+
+def test_new_subject_exact_sender_holds_company_and_creates_task(app, client, live, monkeypatch):
+    client.post("/v1/gmail/dispatch").raise_for_status()
+    original = FakeGmail.request
+
+    def request(self, method, path, **kwargs):
+        if path == "/messages" and "from:(" in kwargs.get("params", {}).get("q", ""):
+            return {"messages": [{"id": "new-subject"}]}
+        if path == "/messages/new-subject":
+            return {
+                "id": "new-subject",
+                "internalDate": str(int(datetime(2026, 11, 17, 12, tzinfo=UTC).timestamp() * 1000)),
+                "payload": {"headers": [{"name": "From", "value": "Recruiting <careers@example.org>"}]},
+            }
+        return original(self, method, path, **kwargs)
+
+    monkeypatch.setattr(FakeGmail, "request", request)
+    response = client.post("/v1/gmail/sync")
+    assert response.status_code == 200, response.text
+    assert client.get("/v1/conversations").json()[0]["event"] == "new_subject_requires_review"
+    assert client.get("/v1/tasks").json()[0]["status"] == "needs_review"
+    assert client.post("/v1/followups/plan").json()["review_packages"] == []

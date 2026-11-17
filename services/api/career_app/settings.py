@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,7 +11,12 @@ class Settings(BaseSettings):
     api_key: SecretStr = Field(min_length=32)
     artifact_dir: Path = Path("./artifacts")
     ollama_url: str = "http://ollama:11434"
-    ollama_model: str = "qwen3:8b"
+    ollama_model: str = "qwen3.5:9b"
+    ai_provider: Literal["ollama", "openai_compatible"] = "ollama"
+    ai_api_enabled: bool = False
+    ai_api_url: str = "https://api.openai.com/v1"
+    ai_api_model: str = ""
+    ai_api_key: SecretStr = SecretStr("")
     gotenberg_url: str = "http://gotenberg:3000"
     mail_transport: str = "mailpit"
     smtp_host: str = "mailpit"

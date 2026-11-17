@@ -1,6 +1,8 @@
 # Yiğit Ersoy — Job Application and Outreach System
 
-**Detailed architecture and implementation plan**  
+**Historical architecture and implementation plan**
+
+For current behavior, use IMPLEMENTATION_STATUS.md and the runbooks. In particular, Streamlit replaced Appsmith, Qwen3.5 9B replaces the earlier requested model, and optional hosted inference requires explicit opt-in. The targets below are not a completion record.
 **Prepared:** 16 November 2026  
 **Status:** Planning complete; implementation requires your next instruction.
 

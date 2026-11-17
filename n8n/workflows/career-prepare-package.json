@@ -41,7 +41,7 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {
-          "timeout": 240000
+          "timeout": 600000
         },
         "sendBody": true,
         "specifyBody": "json",

@@ -13,6 +13,7 @@ import httpx
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
+from .calendar import business_day
 from .domain import assessment, audit, check_package, fail, fingerprint, get
 from .models import Company, Delivery, Integration, Outbox, Package, Suppression, now, uid
 
@@ -213,6 +214,12 @@ def sync(db, settings):
                             "unsubscribe",
                             "bir daha iletişime",
                             "mail göndermeyin",
+                            "iletişim kurmayın",
+                            "nicht mehr kontaktieren",
+                            "keine weiteren e-mails",
+                            "ne me contactez plus",
+                            "geen contact meer",
+                            "kontakta mig inte",
                         )
                     )
                     bounce = "mailer-daemon" in headers.get("from", "") or "delivery-status" in payload.get(
@@ -232,6 +239,61 @@ def sync(db, settings):
                             )
                 cancel_company(db, item.company_id, delivery.event)
                 audit(db, "gmail.thread_activity", item.id, message_count=len(messages))
+            if not delivery.replied:
+                from email.utils import getaddresses
+
+                item = get(db, Outbox, delivery.id)
+                package = get(db, Package, item.package_id)
+                found = client.request(
+                    "GET",
+                    "/messages",
+                    params={
+                        "q": "from:(" + package.recipient + ") newer_than:30d -in:sent",
+                        "maxResults": 10,
+                    },
+                )
+                if found.get("nextPageToken"):
+                    cancel_company(db, item.company_id, "mail_review_overflow")
+                    fail("more than ten contact messages need review; outbound sequence held", 503)
+                for candidate in found.get("messages", []):
+                    message = client.request("GET", "/messages/" + candidate["id"], params={"format": "full"})
+                    headers = {
+                        h["name"].lower(): h["value"] for h in message.get("payload", {}).get("headers", [])
+                    }
+                    senders = {address.lower() for _, address in getaddresses([headers.get("from", "")])}
+                    arrived = datetime.fromtimestamp(int(message.get("internalDate", "0")) / 1000, UTC)
+                    if (
+                        package.recipient.lower() not in senders
+                        or not item.attempted_at
+                        or arrived <= utc(item.attempted_at)
+                    ):
+                        continue
+                    delivery.replied = True
+                    delivery.event = "new_subject_requires_review"
+                    cancel_company(db, item.company_id, delivery.event)
+                    state(
+                        db,
+                        "mailtask:" + candidate["id"],
+                        {
+                            "company_id": item.company_id,
+                            "event": delivery.event,
+                            "provider_message_id": candidate["id"],
+                            "status": "needs_review",
+                            "at": now().isoformat(),
+                        },
+                    )
+            if delivery.replied:
+                item = get(db, Outbox, delivery.id)
+                state(
+                    db,
+                    "mailtask:" + delivery.id,
+                    {
+                        "company_id": item.company_id,
+                        "event": delivery.event,
+                        "status": "needs_review",
+                        "at": now().isoformat(),
+                    },
+                )
             checked += 1
         # Reconcile ambiguous sends using the stable RFC Message-ID; never resend on an empty search result.
         for item in db.scalars(select(Outbox).where(Outbox.status == "send_unknown")):
@@ -302,8 +364,10 @@ def live_dispatch(factory, settings):
             fail("; ".join(blockers))
         company = get(db, Company, job.company_id)
         local = now().astimezone(ZoneInfo(ZONES[company.country]))
-        if local.weekday() not in (1, 2, 3) or not (
-            9 * 60 + 30 <= local.hour * 60 + local.minute < 16 * 60 + 30
+        if (
+            not business_day(local.date(), company.country)
+            or local.weekday() not in (1, 2, 3)
+            or not (9 * 60 + 30 <= local.hour * 60 + local.minute < 16 * 60 + 30)
         ):
             return {"status": "outside_send_window"}
         attempts = list(db.scalars(select(Outbox).where(Outbox.attempted_at.is_not(None))))
@@ -377,10 +441,12 @@ def plan_followups(db, settings):
         if not original.completed_at:
             continue
         due = utc(original.completed_at)
+        company = get(db, Company, original.company_id)
+        due = due.astimezone(ZoneInfo(ZONES[company.country]))
         count = 0
         while count < 7:
             due += timedelta(days=1)
-            if due.weekday() < 5:
+            if business_day(due.date(), company.country):
                 count += 1
         if due > now() or state(db, "followup:" + delivery.id):
             continue
@@ -415,4 +481,7 @@ def plan_followups(db, settings):
         state(db, "followup:" + delivery.id, {"package_id": new_id})
         audit(db, "followup.prepared", new_id)
         result.append(new_id)
-    return {"review_packages": result, "calendar": "weekdays; country holidays not included"}
+    return {
+        "review_packages": result,
+        "calendar": "national public holidays and weekdays; regional holidays require review",
+    }

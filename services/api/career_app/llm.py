@@ -20,25 +20,67 @@ def propose_facts(settings, pages: list[str]) -> ProposedFacts:
         "Use concise self-contained text; mark skills using lowercase tags. All output will require human review."
     )
     try:
-        response = httpx.post(
-            settings.ollama_url + "/api/chat",
-            json={
-                "model": settings.ollama_model,
-                "messages": [
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": "\n".join(f"PAGE {i + 1}\n{p}" for i, p in enumerate(pages))},
-                ],
-                "stream": False,
-                "think": False,
-                "format": ProposedFacts.model_json_schema(),
-                "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 4096},
-            },
-            timeout=240,
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": "\n".join(f"PAGE {i + 1}\n{p}" for i, p in enumerate(pages))},
+        ]
+        if settings.ai_provider == "openai_compatible":
+            from urllib.parse import urlsplit
+
+            target = urlsplit(settings.ai_api_url)
+            if not settings.ai_api_enabled:
+                fail("AI API access is disabled; explicitly enable it in local settings", 409)
+            if (
+                target.scheme != "https"
+                or target.username
+                or target.password
+                or target.query
+                or target.fragment
+            ):
+                fail("AI API requires an HTTPS base URL without credentials or query", 422)
+            if not settings.ai_api_model or not settings.ai_api_key.get_secret_value():
+                fail("configure the API model and key in local secure settings", 409)
+            response = httpx.post(
+                settings.ai_api_url.rstrip("/") + "/chat/completions",
+                headers={"Authorization": "Bearer " + settings.ai_api_key.get_secret_value()},
+                json={
+                    "model": settings.ai_api_model,
+                    "messages": messages,
+                    "temperature": 0,
+                    "max_tokens": 4096,
+                    "response_format": {
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "proposed_facts",
+                            "schema": ProposedFacts.model_json_schema(),
+                        },
+                    },
+                },
+                timeout=240,
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+        else:
+            response = httpx.post(
+                settings.ollama_url + "/api/chat",
+                json={
+                    "model": settings.ollama_model,
+                    "messages": messages,
+                    "stream": False,
+                    "think": False,
+                    "format": ProposedFacts.model_json_schema(),
+                    "options": {"temperature": 0, "num_ctx": 8192, "num_predict": 4096},
+                },
+                timeout=240,
+            )
+            response.raise_for_status()
+            content = response.json()["message"]["content"]
+        result = ProposedFacts.model_validate_json(content)
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        fail(
+            "selected model unavailable or returned invalid structured output; no provider fallback; use manual fact entry",
+            503,
         )
-        response.raise_for_status()
-        result = ProposedFacts.model_validate_json(response.json()["message"]["content"])
-    except (httpx.HTTPError, ValueError, KeyError):
-        fail("local model unavailable or returned invalid structured output; use manual fact entry", 503)
     for fact in result.facts:
         if fact.source_page > len(pages) or normalized(fact.source_quote) not in normalized(
             pages[fact.source_page - 1]

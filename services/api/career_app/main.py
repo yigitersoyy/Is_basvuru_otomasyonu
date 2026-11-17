@@ -32,6 +32,7 @@ from .models import (
     Contact,
     Control,
     Fact,
+    Integration,
     Opportunity,
     Outbox,
     Package,
@@ -105,8 +106,59 @@ def create_app(settings=None):
     def roles():
         return ROLES
 
+    def selected_ai(db):
+        row = db.get(Integration, "ai_selection")
+        if not row:
+            return settings
+        data = row.payload
+        return settings.model_copy(
+            update={
+                "ai_provider": data["provider"],
+                "ollama_model": data["ollama_model"],
+                "ai_api_enabled": data["api_enabled"],
+                "ai_api_url": data["api_url"],
+                "ai_api_model": data["api_model"],
+            }
+        )
+
+    @app.get("/v1/ai/settings", dependencies=auth)
+    def ai_settings(db=Depends(session)):
+        configured = selected_ai(db)
+        return {
+            "provider": configured.ai_provider,
+            "ollama_model": configured.ollama_model,
+            "api_enabled": configured.ai_api_enabled,
+            "api_url": configured.ai_api_url,
+            "api_model": configured.ai_api_model,
+            "api_key_configured": bool(configured.ai_api_key.get_secret_value()),
+            "fallback": "none",
+        }
+
+    @app.put("/v1/ai/settings", dependencies=auth)
+    def select_ai(data: S.AISelection, db=Depends(session)):
+        from urllib.parse import urlsplit
+
+        # A UI-selected URL must never receive an environment key intended for another host.
+        if str(data.api_url).rstrip("/") != settings.ai_api_url.rstrip("/"):
+            fail(
+                "set AI_API_URL locally before selecting this endpoint; existing keys cannot be redirected",
+                422,
+            )
+        if urlsplit(str(data.api_url)).scheme != "https":
+            fail("AI API endpoint requires HTTPS", 422)
+        row = db.get(Integration, "ai_selection")
+        if row is None:
+            row = Integration(id="ai_selection")
+            db.add(row)
+        row.payload = data.model_dump(mode="json")
+        db.flush()
+        audit(
+            db, "ai.selection_updated", "ai_selection", provider=data.provider, api_enabled=data.api_enabled
+        )
+        return ai_settings(db)
+
     @app.post("/v1/sources", dependencies=auth, status_code=201)
-    def upload(file: UploadFile = File(), db=Depends(session)):
+    def upload(file: UploadFile = File(), ocr: bool = False, db=Depends(session)):
         data = file.file.read(settings.max_upload_bytes + 1)
         if len(data) > settings.max_upload_bytes:
             fail("CV exceeds 10 MB", 413)
@@ -114,7 +166,7 @@ def create_app(settings=None):
         existing = db.scalar(select(Source).where(Source.sha256 == sha))
         if existing:
             return serialize(existing)
-        pages = extract_pdf(data)
+        pages = extract_pdf(data, ocr=ocr)
         source = Source(
             id=uid(), sha256=sha, filename=Path(file.filename or "cv.pdf").name[:255], pages=pages
         )
@@ -167,7 +219,7 @@ def create_app(settings=None):
     @app.post("/v1/profiles/{profile_id}/propose-facts", dependencies=auth)
     def suggest(profile_id: str, db=Depends(session)):
         profile = get(db, Profile, profile_id)
-        proposed = propose_facts(settings, get(db, Source, profile.source_id).pages)
+        proposed = propose_facts(selected_ai(db), get(db, Source, profile.source_id).pages)
         return [add_fact(db, profile, f) for f in proposed.facts]
 
     def revise_profile(db, profile):
@@ -387,6 +439,20 @@ def create_app(settings=None):
         existing = db.scalar(select(Outbox).where(Outbox.package_id == obj.id))
         if existing and existing.status != "cancelled":
             return serialize(existing)
+        from datetime import timedelta
+
+        recent = list(
+            db.scalars(
+                select(Outbox).where(
+                    Outbox.company_id == job.company_id,
+                    Outbox.status.in_(["sent", "delivered_to_test"]),
+                    Outbox.completed_at > now() - timedelta(days=60),
+                )
+            )
+        )
+        parent = obj.content.get("followup_parent")
+        if any(item.id != parent for item in recent):
+            fail("company is in the 60-day contact cooldown; review a new opportunity manually")
         active = db.scalar(
             select(Outbox.id).where(
                 Outbox.company_id == job.company_id, Outbox.status.in_(["queued", "sending", "send_unknown"])
@@ -406,6 +472,174 @@ def create_app(settings=None):
         audit(db, "outbox.queued", entry.id, package_id=obj.id)
         db.flush()
         return serialize(entry)
+
+    @app.post("/v1/campaigns", dependencies=auth, status_code=201)
+    def create_campaign(data: S.CampaignInput, db=Depends(session)):
+        get(db, Profile, data.profile_id)
+        key = "campaign:" + uid()
+        row = Integration(id=key, payload={**data.model_dump(), "packages": {}})
+        db.add(row)
+        audit(db, "campaign.created", key.removeprefix("campaign:"), mode=data.mode, enabled=data.enabled)
+        return {"id": key, **row.payload}
+
+    @app.get("/v1/campaigns", dependencies=auth)
+    def campaigns(db=Depends(session)):
+        return [
+            {"id": r.id, **r.payload}
+            for r in db.scalars(select(Integration).where(Integration.id.startswith("campaign:")))
+        ]
+
+    @app.post("/v1/campaigns/{campaign_id}/pause", dependencies=auth)
+    def pause_campaign(campaign_id: str, db=Depends(session)):
+        row = get(db, Integration, campaign_id)
+        if not campaign_id.startswith("campaign:"):
+            fail("campaign not found", 404)
+        row.payload = {**row.payload, "enabled": False}
+        for package_id in row.payload.get("packages", {}).values():
+            for entry in db.scalars(
+                select(Outbox).where(Outbox.package_id == package_id, Outbox.status == "queued")
+            ):
+                entry.status = "cancelled"
+        audit(db, "campaign.paused", campaign_id.removeprefix("campaign:"))
+        return {"status": "paused"}
+
+    @app.post("/v1/campaigns/{campaign_id}/run", dependencies=auth)
+    def run_campaign(campaign_id: str, db=Depends(session)):
+        from fastapi import HTTPException
+
+        row = db.get(Integration, campaign_id, with_for_update=True)
+        if row is None or not campaign_id.startswith("campaign:"):
+            fail("campaign not found", 404)
+        policy = dict(row.payload)
+        if not policy["enabled"]:
+            fail("campaign is disabled")
+        profile = get(db, Profile, policy["profile_id"])
+        results, prepared = [], dict(policy.get("packages", {}))
+        jobs = db.scalars(
+            select(Opportunity)
+            .join(Company)
+            .where(Company.country.in_(policy["countries"]), Opportunity.role.in_(policy["roles"]))
+            .order_by(Opportunity.created_at)
+            .limit(200)
+        )
+        for job in jobs:
+            if len(results) >= policy["maximum_packages"]:
+                break
+            key = job.id + ":" + str(profile.revision)
+            if key in prepared:
+                continue
+            try:
+                with db.begin_nested():
+                    report = assessment(db, profile.id, job)
+                    if report["role_coverage"] < policy["minimum_coverage"]:
+                        continue
+                    candidates = list(
+                        db.scalars(
+                            select(Contact)
+                            .where(
+                                Contact.company_id == job.company_id,
+                                Contact.verified_at.is_not(None),
+                                Contact.evidence_type.in_(
+                                    ["published_named", "published_functional", "user_confirmed"]
+                                ),
+                            )
+                            .order_by(Contact.created_at)
+                        )
+                    )
+                    if not candidates:
+                        results.append(
+                            {
+                                "opportunity_id": job.id,
+                                "status": "manual_contact_required",
+                                "url": job.source_url,
+                            }
+                        )
+                        continue
+                    result = prepare(
+                        S.PackageInput(
+                            profile_id=profile.id, opportunity_id=job.id, contact_id=candidates[0].id
+                        ),
+                        db,
+                    )
+                    package_id = result["id"]
+                    if policy["mode"] == "policy_auto":
+                        # No novel wording is generated in this lane; all candidate statements remain approved facts.
+                        if report["blockers"] or any(
+                            r["importance"] == "required" and r["status"] == "gap"
+                            for r in report["requirement_mapping"]["requirements"]
+                        ):
+                            results.append(
+                                {
+                                    "opportunity_id": job.id,
+                                    "package_id": package_id,
+                                    "status": "needs_review",
+                                    "blockers": report["blockers"],
+                                }
+                            )
+                        else:
+                            approve(package_id, S.Approval(package_hash=result["package_hash"]), db)
+                            queue(package_id, db)
+                            audit(
+                                db,
+                                "campaign.policy_approved",
+                                package_id,
+                                campaign_id=campaign_id,
+                                package_hash=result["package_hash"],
+                            )
+                            results.append({"package_id": package_id, "status": "queued"})
+                    else:
+                        results.append({"package_id": package_id, "status": "needs_review"})
+                    prepared[key] = package_id
+            except HTTPException as error:
+                results.append({"opportunity_id": job.id, "status": "held", "reason": error.detail})
+        row.payload = {**policy, "packages": prepared}
+        return {"results": results, "sending_performed": False}
+
+    @app.post("/v1/campaigns/run", dependencies=auth)
+    def run_campaign_request(data: S.CampaignRun, db=Depends(session)):
+        return run_campaign(data.campaign_id, db)
+
+    @app.get("/v1/packages/{package_id}/portal-handoff", dependencies=auth)
+    def portal_handoff(package_id: str, db=Depends(session)):
+        package = get(db, Package, package_id)
+        job = get(db, Opportunity, package.opportunity_id)
+        recorded = db.get(Integration, "portal:" + package.id)
+        return {
+            "package_id": package.id,
+            "job_url": job.source_url,
+            "status": recorded.payload["status"] if recorded else "awaiting_portal_submission",
+            "submission": recorded.payload if recorded else None,
+            "files": {fmt: f"/v1/packages/{package.id}/artifacts/{fmt}" for fmt in package.manifest},
+            "missing_answers": [
+                "Confirm work rights, sponsorship, availability and all legal attestations on the employer portal"
+            ],
+            "note": "Email dispatch is separate and never records portal submission. Download files through authenticated requests.",
+        }
+
+    @app.post("/v1/packages/{package_id}/portal-submission", dependencies=auth)
+    def portal_submission(package_id: str, data: S.PortalConfirmation, db=Depends(session)):
+        from datetime import datetime
+
+        get(db, Package, package_id)
+        try:
+            submitted = datetime.fromisoformat(data.submitted_at)
+            if submitted.tzinfo is None or submitted > now():
+                raise ValueError()
+        except ValueError:
+            fail("supply a non-future ISO timestamp with timezone", 422)
+        key = "portal:" + package_id
+        row = db.get(Integration, key)
+        if row is None:
+            row = Integration(id=key)
+            db.add(row)
+        row.payload = {
+            "status": "submitted",
+            "reference": data.reference,
+            "submitted_at": submitted.isoformat(),
+            "evidence_type": "user_recorded",
+        }
+        audit(db, "portal.submission_recorded", package_id)
+        return row.payload
 
     @app.get("/v1/packages/{package_id}/artifacts/{fmt}", dependencies=auth)
     def artifact(package_id: str, fmt: str, db=Depends(session)):
@@ -482,8 +716,8 @@ def create_app(settings=None):
     from fastapi.responses import HTMLResponse
 
     from . import gmail
-    from .models import Delivery, Integration
-    from .research import public_page, search
+    from . import research as research_adapter
+    from .models import Delivery
 
     @app.get("/v1/gmail/status", dependencies=auth)
     def gmail_status(db=Depends(session)):
@@ -525,6 +759,13 @@ def create_app(settings=None):
     def followup_plan(db=Depends(session)):
         return gmail.plan_followups(db, settings)
 
+    @app.get("/v1/tasks", dependencies=auth)
+    def response_tasks(db=Depends(session)):
+        return [
+            {"id": row.id, **row.payload}
+            for row in db.scalars(select(Integration).where(Integration.id.startswith("mailtask:")))
+        ]
+
     @app.get("/v1/conversations", dependencies=auth)
     def conversations(db=Depends(session)):
         return [serialize(x) for x in db.scalars(select(Delivery).limit(200))]
@@ -532,16 +773,92 @@ def create_app(settings=None):
     @app.post("/v1/companies/{company_id}/research", dependencies=auth)
     def research(company_id: str, db=Depends(session)):
         company = get(db, Company, company_id)
-        result = public_page(company.source_url, company.domain)
+        result = research_adapter.public_page(company.source_url, company.domain)
         gmail.state(db, "research:" + company_id, {**result, "at": now().isoformat()})
         audit(db, "company.researched", company_id)
         return result
+
+    @app.post("/v1/companies/{company_id}/discover-contacts", dependencies=auth)
+    def discover_contacts(company_id: str, db=Depends(session)):
+        company = get(db, Company, company_id)
+        result = research(company_id, db)
+        proposed = []
+        for email in result["published_emails"][:20]:
+            existing = db.scalar(
+                select(Contact).where(Contact.company_id == company.id, Contact.email == email)
+            )
+            if existing:
+                proposed.append(serialize(existing))
+                continue
+            position = result["text"].lower().find(email.lower())
+            quote = result["text"][max(0, position - 180) : position + len(email) + 180]
+            proposed.append(
+                {
+                    "email": email,
+                    "source_url": result["url"],
+                    "source_quote": quote,
+                    "status": "candidate_only",
+                    "name": None,
+                    "role": None,
+                    "instruction": "Review identity and role, then add and explicitly confirm a contact.",
+                }
+            )
+        return {
+            "contacts": proposed,
+            "status": "requires_source_review" if proposed else "manual_contact_required",
+            "official_url": result["url"],
+            "automatically_confirmed": False,
+        }
 
     @app.get("/v1/discovery/search", dependencies=auth)
     def discovery_search(query: str):
         if not 3 <= len(query) <= 300:
             fail("search query must contain 3–300 characters", 422)
-        return search(settings, query)
+        return research_adapter.search(settings, query)
+
+    @app.post("/v1/operations/retention", dependencies=auth)
+    def retention(dry_run: bool = True, db=Depends(session)):
+        import shutil
+        from datetime import datetime, timedelta
+
+        referenced = set(db.scalars(select(Source.id))) | set(db.scalars(select(Package.id)))
+        cutoff = now() - timedelta(days=1)
+        orphans = [
+            path
+            for path in settings.artifact_dir.iterdir()
+            if path.is_dir()
+            and not path.is_symlink()
+            and path.name not in referenced
+            and datetime.fromtimestamp(path.stat().st_mtime, cutoff.tzinfo) < cutoff
+        ]
+        snapshots = []
+        for row in db.scalars(select(Integration).where(Integration.id.startswith("research:"))):
+            timestamp = datetime.fromisoformat(row.payload["at"])
+            if timestamp < now() - timedelta(days=90) and "text" in row.payload:
+                snapshots.append(row.id)
+                if not dry_run:
+                    row.payload = {
+                        "url": row.payload["url"],
+                        "at": row.payload["at"],
+                        "content_hash": digest(row.payload["text"].encode()),
+                        "status": "expired_snapshot",
+                    }
+        if not dry_run:
+            for path in orphans:
+                shutil.rmtree(path)
+            audit(
+                db,
+                "retention.executed",
+                "retention",
+                orphan_count=len(orphans),
+                snapshot_count=len(snapshots),
+            )
+        return {
+            "dry_run": dry_run,
+            "orphan_directories": [p.name for p in orphans],
+            "expired_snapshots": snapshots,
+            "note": "Referenced CVs/packages and suppression records are retained. Backups have their own retention.",
+        }
 
     @app.get("/v1/operations/readiness", dependencies=auth)
     def readiness(db=Depends(session)):

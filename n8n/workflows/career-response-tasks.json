@@ -1,0 +1,61 @@
+{
+  "id": "career-response-tasks",
+  "name": "Career Response Tasks",
+  "active": false,
+  "nodes": [
+    {
+      "id": "trigger",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "api",
+      "name": "Career API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "http://api:8000/v1/tasks",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "career-api",
+          "name": "Career API key"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Career API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Istanbul",
+    "saveDataSuccessExecution": "none"
+  }
+}

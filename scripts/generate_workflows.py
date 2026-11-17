@@ -56,7 +56,7 @@ def workflow(name, path, method="GET", webhook=False, schedule=None):
         "url": "http://api:8000" + path,
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": {"timeout": 240000 if path == "/v1/packages" else 60000},
+        "options": {"timeout": 600000 if path in {"/v1/packages", "/v1/campaigns/run"} else 60000},
     }
     if webhook:
         params.update(sendBody=True, specifyBody="json", jsonBody="={{ JSON.stringify($json.body) }}")
@@ -86,9 +86,12 @@ def workflow(name, path, method="GET", webhook=False, schedule=None):
 
 
 specs = [
+    ("Career Run Campaign", "/v1/campaigns/run", "POST", True, None),
     ("Career Gmail Sync", "/v1/gmail/sync", "POST", False, 5),
     ("Career Gmail Dispatch", "/v1/gmail/dispatch", "POST", False, 1),
     ("Career Followup Planner", "/v1/followups/plan", "POST", False, 60),
+    ("Career Retention Preview", "/v1/operations/retention", "POST", False, 1440),
+    ("Career Response Tasks", "/v1/tasks", "GET", False, None),
     ("Career Overview", "/v1/overview", "GET", False, None),
     ("Career Import Company", "/v1/companies", "POST", True, None),
     ("Career Import Opportunity", "/v1/opportunities", "POST", True, None),

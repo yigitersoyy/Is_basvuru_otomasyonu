@@ -3,6 +3,8 @@ services:
   postgres:
     image: postgres:17.7-bookworm
     environment:
+      NO_PROXY: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
+      no_proxy: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/configure.py first}
       CAREER_DB_PASSWORD: ${CAREER_DB_PASSWORD:?Run scripts/configure.py first}
@@ -22,10 +24,18 @@ services:
       context: .
       dockerfile: services/api/Dockerfile
     environment:
+      NO_PROXY: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
+      no_proxy: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
       DATABASE_URL: postgresql+psycopg://career:${CAREER_DB_PASSWORD}@postgres:5432/career
       API_KEY: ${API_KEY:?Run scripts/configure.py first}
       ARTIFACT_DIR: /app/artifacts
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.5:9b}
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      AI_API_ENABLED: ${AI_API_ENABLED:-false}
+      AI_API_URL: ${AI_API_URL:-https://api.openai.com/v1}
+      AI_API_MODEL: ${AI_API_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
       GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:-}
       GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:-}
       GMAIL_LIVE_ENABLED: ${GMAIL_LIVE_ENABLED:-false}
@@ -52,6 +62,8 @@ services:
   mailpit:
     image: axllent/mailpit:v1.27.10
     environment:
+      NO_PROXY: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
+      no_proxy: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
       MP_MAX_MESSAGES: 100
     ports: [127.0.0.1:8025:8025]
     networks: [private]
@@ -59,6 +71,8 @@ services:
   n8n:
     image: docker.n8n.io/n8nio/n8n:2.32.5
     environment:
+      NO_PROXY: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
+      no_proxy: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: postgres
       DB_POSTGRESDB_DATABASE: n8n
@@ -83,9 +97,11 @@ services:
     networks: [private, outbound]
     restart: unless-stopped
   ollama:
-    image: ollama/ollama:0.13.5
+    image: ollama/ollama:0.40.16
     profiles: [ai]
     environment:
+      NO_PROXY: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
+      no_proxy: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
       OLLAMA_NO_CLOUD: '1'
       OLLAMA_NUM_PARALLEL: '1'
       OLLAMA_MAX_LOADED_MODELS: '1'
@@ -103,6 +119,8 @@ services:
       context: .
       dockerfile: services/workspace/Dockerfile
     environment:
+      NO_PROXY: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
+      no_proxy: localhost,127.0.0.1,api,postgres,gotenberg,mailpit,ollama,searxng,host.docker.internal
       API_URL: http://api:8000
       API_KEY: ${API_KEY}
     ports: [127.0.0.1:8080:8501]

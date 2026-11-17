@@ -89,7 +89,10 @@ def assessment(session, profile_id: str, opportunity: Opportunity):
             blockers.append("required language needs confirmation: " + lang)
     if re.search(r"\b(senior|principal|lead|head of|director)\b", opportunity.title, re.I):
         blockers.append("seniority requires manual review")
+    from .matching import requirement_map
+
     return {
+        "requirement_mapping": requirement_map(opportunity, facts),
         "role_coverage": score,
         "evidence": hits,
         "missing_tags": [t for t, ids in hits.items() if not ids],

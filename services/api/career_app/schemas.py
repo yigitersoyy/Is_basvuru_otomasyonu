@@ -101,3 +101,38 @@ class BoardInput(Input):
     provider: Literal["greenhouse", "ashby"]
     board: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,100}$")
     role: Role
+
+
+class AISelection(Input):
+    provider: Literal["ollama", "openai_compatible"] = "ollama"
+    ollama_model: str = Field(default="qwen3.5:9b", min_length=1, max_length=200)
+    api_enabled: bool = False
+    api_url: HttpUrl = "https://api.openai.com/v1"
+    api_model: str = Field(default="", max_length=200)
+
+
+class CampaignInput(Input):
+    name: str = Field(min_length=2, max_length=120)
+    profile_id: str
+    mode: Literal["draft_only", "review_each", "policy_auto"] = "draft_only"
+    countries: list[str] = Field(min_length=1, max_length=10)
+    roles: list[Role] = Field(min_length=1, max_length=5)
+    minimum_coverage: int = Field(default=60, ge=0, le=100)
+    maximum_packages: int = Field(default=5, ge=1, le=20)
+    enabled: bool = False
+
+    @field_validator("countries")
+    @classmethod
+    def campaign_countries(cls, value):
+        if not set(value).issubset(COUNTRIES):
+            raise ValueError("unsupported campaign country")
+        return value
+
+
+class PortalConfirmation(Input):
+    reference: str = Field(min_length=3, max_length=500)
+    submitted_at: str = Field(min_length=10, max_length=60)
+
+
+class CampaignRun(Input):
+    campaign_id: str = Field(pattern=r"^campaign:[a-f0-9-]{36}$")

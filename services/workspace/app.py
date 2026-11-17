@@ -43,6 +43,8 @@ page = st.sidebar.radio(
     "Workspace",
     [
         "Overview",
+        "AI settings",
+        "Campaigns & applications",
         "CV & facts",
         "Companies & research",
         "Opportunities",
@@ -63,11 +65,113 @@ if page == "Overview":
     st.info(
         "Gmail requires your own OAuth connection and explicit live configuration. Local test messages remain in Mailpit."
     )
+elif page == "Campaigns & applications":
+    st.subheader("Campaign policy")
+    profiles = call("GET", "/v1/profiles")
+    if profiles:
+        with st.form("campaign"):
+            profile = choose("Candidate profile", profiles, "campaign_profile")
+            name = st.text_input("Campaign name")
+            mode = st.selectbox("Mode", ["draft_only", "review_each", "policy_auto"])
+            countries = st.multiselect(
+                "Countries", ["TR", "DE", "AT", "CH", "NL", "DK", "SE", "NO", "GB", "BE"], default=["TR"]
+            )
+            roles = st.multiselect(
+                "Role families",
+                list(call("GET", "/v1/roles")),
+                default=["applied_ai", "rag_llm", "automation"],
+            )
+            coverage = st.slider("Minimum approved fact role coverage", 0, 100, 60)
+            enabled = st.checkbox(
+                "Enable this policy (policy_auto may approve and queue unchanged approved content)"
+            )
+            if st.form_submit_button("Create campaign"):
+                st.json(
+                    call(
+                        "POST",
+                        "/v1/campaigns",
+                        json={
+                            "name": name,
+                            "profile_id": profile["id"],
+                            "mode": mode,
+                            "countries": countries,
+                            "roles": roles,
+                            "minimum_coverage": coverage,
+                            "enabled": enabled,
+                        },
+                    )
+                )
+    campaigns = call("GET", "/v1/campaigns")
+    if campaigns:
+        selected = choose("Saved campaign", campaigns, "selected_campaign")
+        if st.button("Run bounded preparation"):
+            st.json(call("POST", f"/v1/campaigns/{selected['id']}/run"))
+        if st.button("Pause this campaign and cancel queued packages"):
+            st.json(call("POST", f"/v1/campaigns/{selected['id']}/pause"))
+    st.subheader("Employer portal handoff")
+    packages = call("GET", "/v1/packages")
+    if packages:
+        package = choose("Package", packages, "portal_package")
+        st.json(call("GET", f"/v1/packages/{package['id']}/portal-handoff"))
+        st.caption(
+            "Download the reviewed files under Review & outbox. Complete unsupported portals manually."
+        )
+        with st.form("portal_confirmation"):
+            reference = st.text_input("Actual submission confirmation/reference")
+            timestamp = st.text_input(
+                "Submission time (ISO 8601 with timezone)", placeholder="2026-11-17T14:00:00+03:00"
+            )
+            if st.form_submit_button("Record my completed portal submission"):
+                st.json(
+                    call(
+                        "POST",
+                        f"/v1/packages/{package['id']}/portal-submission",
+                        json={"reference": reference, "submitted_at": timestamp},
+                    )
+                )
+elif page == "AI settings":
+    current = call("GET", "/v1/ai/settings")
+    st.info(
+        "Local inference is the default. API mode sends CV text to your selected provider and may incur charges. No automatic fallback is used."
+    )
+    with st.form("ai_selection"):
+        provider = st.selectbox(
+            "Provider",
+            ["ollama", "openai_compatible"],
+            index=["ollama", "openai_compatible"].index(current["provider"]),
+        )
+        model = st.text_input("Ollama model", current["ollama_model"])
+        endpoint = st.text_input("API base URL (must match local AI_API_URL)", current["api_url"])
+        api_model = st.text_input("API model", current["api_model"])
+        enabled = st.checkbox(
+            "I explicitly allow API requests and any provider charges", value=current["api_enabled"]
+        )
+        st.caption(
+            "Set AI_API_KEY and AI_API_URL in your private .env, then recreate the API. Keys are never displayed or accepted here."
+        )
+        st.write("API key configured:", current["api_key_configured"])
+        if st.form_submit_button("Save AI selection"):
+            call(
+                "PUT",
+                "/v1/ai/settings",
+                json={
+                    "provider": provider,
+                    "ollama_model": model,
+                    "api_enabled": enabled,
+                    "api_url": endpoint,
+                    "api_model": api_model,
+                },
+            )
+            st.success("Selection saved; no inference request was made.")
 elif page == "CV & facts":
+    ocr = st.checkbox("Use local OCR if the PDF has no selectable text (review every extracted fact)")
     uploaded = st.file_uploader("Upload your text-based CV", type=["pdf"])
     if uploaded and st.button("Import PDF"):
         st.session_state["source"] = call(
-            "POST", "/v1/sources", files={"file": (uploaded.name, uploaded.getvalue(), "application/pdf")}
+            "POST",
+            "/v1/sources",
+            params={"ocr": ocr},
+            files={"file": (uploaded.name, uploaded.getvalue(), "application/pdf")},
         )
     source = st.session_state.get("source")
     if source:
@@ -141,6 +245,8 @@ elif page == "Companies & research":
     if st.button("Research official source"):
         with st.spinner("Reading bounded public source..."):
             st.json(call("POST", f"/v1/companies/{company['id']}/research"))
+    if st.button("Discover published contact candidates"):
+        st.json(call("POST", f"/v1/companies/{company['id']}/discover-contacts"))
     st.caption(
         "Published emails still need source review and contact confirmation. Research never guesses addresses."
     )

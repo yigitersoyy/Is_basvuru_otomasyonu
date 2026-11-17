@@ -10,7 +10,7 @@ from pypdf import PdfReader
 from .domain import digest, fail, normalized
 
 
-def extract_pdf(data: bytes) -> list[str]:
+def extract_pdf(data: bytes, ocr: bool = False) -> list[str]:
     if not data.startswith(b"%PDF-"):
         fail("expected a PDF file", 422)
     try:
@@ -24,8 +24,12 @@ def extract_pdf(data: bytes) -> list[str]:
         if isinstance(exc, HTTPException):
             raise
         fail("could not parse PDF", 422)
+    if ocr and len("".join(pages).strip()) < 50:
+        from .ocr import recognize
+
+        pages = recognize(data, len(pages))
     if len("".join(pages).strip()) < 50:
-        fail("PDF has insufficient text; provide a text-based PDF (OCR is not yet integrated)", 422)
+        fail("PDF has insufficient text; enable local OCR or provide a text-based PDF", 422)
     return pages
 
 
