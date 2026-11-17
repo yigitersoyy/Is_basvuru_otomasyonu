@@ -31,7 +31,15 @@ def workflow(name, path, method="GET", webhook=False, schedule=None):
             "type": "n8n-nodes-base.scheduleTrigger",
             "typeVersion": 1.2,
             "position": [0, 0],
-            "parameters": {"rule": {"interval": [{"field": "minutes", "minutesInterval": schedule}]}},
+            "parameters": {
+                "rule": {
+                    "interval": [
+                        {"field": "hours", "hoursInterval": schedule // 60}
+                        if schedule >= 60
+                        else {"field": "minutes", "minutesInterval": schedule}
+                    ]
+                }
+            },
         }
     else:
         trigger = {
@@ -78,6 +86,9 @@ def workflow(name, path, method="GET", webhook=False, schedule=None):
 
 
 specs = [
+    ("Career Gmail Sync", "/v1/gmail/sync", "POST", False, 5),
+    ("Career Gmail Dispatch", "/v1/gmail/dispatch", "POST", False, 1),
+    ("Career Followup Planner", "/v1/followups/plan", "POST", False, 60),
     ("Career Overview", "/v1/overview", "GET", False, None),
     ("Career Import Company", "/v1/companies", "POST", True, None),
     ("Career Import Opportunity", "/v1/opportunities", "POST", True, None),
@@ -89,4 +100,4 @@ specs = [
 for args in specs:
     data = workflow(*args)
     (root / "n8n/workflows" / (data["id"] + ".json")).write_text(json.dumps(data, indent=2) + "\n")
-print("Generated seven inactive workflows backed by real API endpoints.")
+print("Generated inactive workflows backed by real API endpoints.")

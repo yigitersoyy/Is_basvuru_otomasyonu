@@ -26,6 +26,9 @@ services:
       API_KEY: ${API_KEY:?Run scripts/configure.py first}
       ARTIFACT_DIR: /app/artifacts
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+      GMAIL_CLIENT_ID: ${GMAIL_CLIENT_ID:-}
+      GMAIL_CLIENT_SECRET: ${GMAIL_CLIENT_SECRET:-}
+      GMAIL_LIVE_ENABLED: ${GMAIL_LIVE_ENABLED:-false}
       MAIL_TRANSPORT: mailpit
       MAIL_FROM: ${MAIL_FROM:-candidate@example.test}
     ports: [127.0.0.1:8000:8000]
@@ -89,10 +92,28 @@ services:
     volumes: [ollama_data:/root/.ollama]
     networks: [private, outbound]
     restart: unless-stopped
+  searxng:
+    image: searxng/searxng@sha256:932f69dca010db9880bddebb2171f05d8e1a25d04a59149ff65409993d680024
+    profiles: [research]
+    volumes: [./config/searxng.yml:/etc/searxng/settings.yml:ro]
+    networks: [private, outbound]
+    restart: unless-stopped
+  workspace:
+    build:
+      context: .
+      dockerfile: services/workspace/Dockerfile
+    environment:
+      API_URL: http://api:8000
+      API_KEY: ${API_KEY}
+    ports: [127.0.0.1:8080:8501]
+    depends_on:
+      api: {condition: service_healthy}
+    networks: [private]
+    restart: unless-stopped
   appsmith:
     image: appsmith/appsmith-ce:v1.98
-    profiles: [ui]
-    ports: [127.0.0.1:8080:80]
+    profiles: [legacy-appsmith]
+    ports: [127.0.0.1:8081:80]
     volumes: [appsmith_data:/appsmith-stacks]
     networks: [private, outbound]
     restart: unless-stopped

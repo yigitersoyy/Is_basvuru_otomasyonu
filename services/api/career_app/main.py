@@ -55,7 +55,7 @@ def create_app(settings=None):
         yield
         engine.dispose()
 
-    app = FastAPI(title="Career Outreach — local workspace", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Career Outreach — local workspace", version="0.2.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.sessions = sessions
     app.state.engine = engine
@@ -83,7 +83,7 @@ def create_app(settings=None):
                 db.execute(text("SELECT 1"))
         except Exception:
             fail("database unavailable", 503)
-        return {"status": "ok", "version": "0.1.0", "live_sending": False}
+        return {"status": "ok", "version": "0.2.0", "live_sending": settings.gmail_live_enabled}
 
     @app.get("/v1/overview", dependencies=auth)
     def overview(db=Depends(session)):
@@ -350,7 +350,7 @@ def create_app(settings=None):
         if not obj:
             fail("Package not found", 404)
         pending = list(db.scalars(select(Outbox).where(Outbox.package_id == obj.id)))
-        if any(o.status in {"sending", "send_unknown", "delivered_to_test"} for o in pending):
+        if any(o.status in {"sending", "send_unknown", "delivered_to_test", "sent"} for o in pending):
             fail("attempted packages are immutable; generate a new package")
         for o in pending:
             o.status = "cancelled"
@@ -478,5 +478,103 @@ def create_app(settings=None):
     @app.get("/v1/audit", dependencies=auth)
     def audit_log(db=Depends(session)):
         return [serialize(a) for a in db.scalars(select(Audit).order_by(Audit.created_at.desc()).limit(200))]
+
+    from fastapi.responses import HTMLResponse
+
+    from . import gmail
+    from .models import Delivery, Integration
+    from .research import public_page, search
+
+    @app.get("/v1/gmail/status", dependencies=auth)
+    def gmail_status(db=Depends(session)):
+        account = db.get(Integration, "gmail")
+        return {
+            "connected": bool(account),
+            "email": account.payload.get("email") if account else None,
+            "live_enabled": settings.gmail_live_enabled,
+        }
+
+    @app.post("/v1/gmail/connect", dependencies=auth)
+    def gmail_connect(db=Depends(session)):
+        return gmail.begin(db, settings)
+
+    @app.get("/oauth/gmail/callback")
+    def gmail_callback(code: str, state: str, db=Depends(session)):
+        gmail.finish(db, settings, code, state)
+        return HTMLResponse(
+            "<h1>Gmail connected</h1><p>You can close this tab and return to the local workspace.</p>"
+        )
+
+    @app.post("/v1/gmail/disconnect", dependencies=auth)
+    def gmail_disconnect(db=Depends(session)):
+        for key in ["gmail", "gmail_sync", "oauth_pending"]:
+            obj = db.get(Integration, key)
+            if obj:
+                db.delete(obj)
+        return {"connected": False}
+
+    @app.post("/v1/gmail/sync", dependencies=auth)
+    def gmail_sync(db=Depends(session)):
+        return gmail.sync(db, settings)
+
+    @app.post("/v1/gmail/dispatch", dependencies=auth)
+    def gmail_dispatch():
+        return gmail.live_dispatch(sessions, settings)
+
+    @app.post("/v1/followups/plan", dependencies=auth)
+    def followup_plan(db=Depends(session)):
+        return gmail.plan_followups(db, settings)
+
+    @app.get("/v1/conversations", dependencies=auth)
+    def conversations(db=Depends(session)):
+        return [serialize(x) for x in db.scalars(select(Delivery).limit(200))]
+
+    @app.post("/v1/companies/{company_id}/research", dependencies=auth)
+    def research(company_id: str, db=Depends(session)):
+        company = get(db, Company, company_id)
+        result = public_page(company.source_url, company.domain)
+        gmail.state(db, "research:" + company_id, {**result, "at": now().isoformat()})
+        audit(db, "company.researched", company_id)
+        return result
+
+    @app.get("/v1/discovery/search", dependencies=auth)
+    def discovery_search(query: str):
+        if not 3 <= len(query) <= 300:
+            fail("search query must contain 3–300 characters", 422)
+        return search(settings, query)
+
+    @app.get("/v1/operations/readiness", dependencies=auth)
+    def readiness(db=Depends(session)):
+        import httpx
+
+        checks = {
+            "gmail_connected": bool(db.get(Integration, "gmail")),
+            "gmail_client_configured": bool(
+                settings.gmail_client_id and settings.gmail_client_secret.get_secret_value()
+            ),
+            "live_enabled": settings.gmail_live_enabled,
+        }
+        for name, url in {
+            "pdf_converter": settings.gotenberg_url + "/health",
+            "local_model": settings.ollama_url + "/api/tags",
+            "search": settings.searxng_url + "/healthz",
+        }.items():
+            try:
+                response = httpx.get(url, timeout=3)
+                checks[name] = response.is_success
+                if name == "local_model" and response.is_success:
+                    checks["model_downloaded"] = any(
+                        m.get("name") == settings.ollama_model for m in response.json().get("models", [])
+                    )
+            except (httpx.HTTPError, ValueError):
+                checks[name] = False
+        return {
+            "checks": checks,
+            "ready_for_live_pilot": all(
+                checks.get(k, False)
+                for k in ["gmail_connected", "gmail_client_configured", "live_enabled", "pdf_converter"]
+            ),
+            "note": "Readiness checks do not replace a reviewed test send and GPU benchmark.",
+        }
 
     return app

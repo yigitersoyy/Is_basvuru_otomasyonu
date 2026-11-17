@@ -1,8 +1,10 @@
 # Job Application and Outreach Automation
 
-A personal job-search workspace built around **n8n, local Ollama, PostgreSQL, Gotenberg and Appsmith CE**. Targets junior applied AI, RAG/LLM integration, automation/Power Platform, data/BI and selected graduate ML roles in Türkiye and selected European countries.
+A personal job-search workspace built around **n8n, local Ollama, PostgreSQL, Gotenberg and Streamlit**. Targets junior applied AI, RAG/LLM integration, automation/Power Platform, data/BI and selected graduate ML roles in Türkiye and selected European countries.
 
-**Current release: v0.1 — evidence-backed CV preparation and local test outbox.** This is the first implementation increment of the [full architecture](docs/Job_Application_Outreach_Architecture_EN.md). Live Gmail sending, reply synchronization, unattended contact discovery and a finished Appsmith application are still pending. Nothing in this release sends email to real recipients: dispatch is restricted to the local Mailpit service.
+**Current release: v0.2 — local workspace, Gmail integration and sourced research.** Gmail OAuth, live dispatch, reply checks, reviewed follow-ups and the ready-to-use Streamlit interface are implemented. Real Gmail authorization, full Docker/GPU testing and the first live pilot still require your local setup. Live sending is disabled by default.
+
+The local interface uses **Streamlit** instead of the initially proposed Appsmith, reducing setup and memory use while retaining n8n orchestration. Appsmith remains an optional legacy builder profile.
 
 ## What works
 
@@ -15,7 +17,7 @@ A personal job-search workspace built around **n8n, local Ollama, PostgreSQL, Go
 - DOCX generation using docxtpl and local PDF conversion through Gotenberg.
 - Exact package review and hash-bound approval, revision invalidation, authenticated artifact download.
 - Durable PostgreSQL outbox, company sequence uniqueness, suppression, persistent pause and uncertain-send holds.
-- Seven inactive n8n workflows connected to implemented API routes.
+- Ten inactive n8n workflows connected to implemented API routes.
 - Windows start/stop scripts, migration, locked dependencies and CI checks.
 
 ## Windows 11 quick start
@@ -40,11 +42,14 @@ docker compose up -d --build --wait
 | Workspace API / interactive review | http://localhost:8000/docs |
 | n8n | http://localhost:5678 |
 | Local test mailbox | http://localhost:8025 |
-| Appsmith, optional `ui` profile | http://localhost:8080 |
+| Ready-to-use local workspace | http://localhost:8080 |
 
 At `/docs`, use **Authorize** and the `API_KEY` from your private `.env` in the `X-API-Key` field. There is no shared default password. Complete n8n's local owner-account setup separately.
 
-Read [the first-use walkthrough](docs/runbooks/FIRST_USE.md), [n8n setup](n8n/README.md), and [Appsmith setup](appsmith/README.md).
+Open the workspace to upload the CV, review facts, add researched opportunities/contacts, preview documents, approve packages and manage conversations. Then read [Gmail setup](docs/runbooks/GMAIL.md), [n8n setup](n8n/README.md) and [encrypted backups](docs/runbooks/BACKUP.md).
+
+For public company/vacancy discovery, run `docker compose --profile research up -d searxng` and use the workspace search. Official-page research only fetches HTTPS sources on the selected company domain; public IPs are pinned, redirects are blocked and responses are bounded. Published addresses require review before contact confirmation.
+
 
 ### Optional local model on your RTX 4060
 
@@ -53,9 +58,9 @@ docker compose -f compose.yaml -f compose.gpu.yaml --profile ai up -d ollama
 docker compose exec ollama ollama pull qwen3:8b
 ```
 
-Verify actual VRAM with `nvidia-smi`. The 8B model may need a shorter context or a 4B replacement if GPU memory is insufficient. Set `OLLAMA_MODEL=qwen3:4b` in `.env`, pull that model, and recreate `api` when switching. Inference concurrency is one; cloud features are disabled. The model only proposes facts in v0.1: it never approves or sends content. Manual fact entry works without a GPU or model.
+Verify actual VRAM with `nvidia-smi`. The 8B model may need a shorter context or a 4B replacement if GPU memory is insufficient. Set `OLLAMA_MODEL=qwen3:4b` in `.env`, pull that model, and recreate `api` when switching. Inference concurrency is one; cloud features are disabled. The model only proposes facts: it never approves or sends content. Manual fact entry works without a GPU or model.
 
-For CPU-only inference, use `docker compose --profile ai up -d ollama`. Appsmith can be started with `docker compose --profile ui up -d appsmith`; its screens still require the configuration in the setup guide.
+For CPU-only inference, use `docker compose --profile ai up -d ollama`. The optional legacy Appsmith builder is available with `docker compose --profile legacy-appsmith up -d appsmith` at port 8081; the default Streamlit workspace needs no page configuration.
 
 ## Verification
 
@@ -84,7 +89,8 @@ services/api/career_app/  Private API, document handling, matching and outbox ru
 migrations/              Versioned database schema
 config/roles.json        Candidate-specific role families, no private CV/contact data
 n8n/workflows/           Importable inactive workflows
-appsmith/                Datasource, page and query configuration guide
+services/workspace/      Ready-to-use Streamlit user interface
+appsmith/                Optional legacy builder configuration
 scripts/                 Windows setup, configuration and integration checks
 tests/                   Behavior and document validation tests
 docs/runbooks/           First-use and operations instructions

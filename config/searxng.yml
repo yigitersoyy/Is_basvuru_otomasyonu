@@ -1,0 +1,6 @@
+use_default_settings: true
+server:
+  secret_key: "local-only-no-public-interface-change-before-sharing"
+  limiter: false
+search:
+  formats: [html, json]

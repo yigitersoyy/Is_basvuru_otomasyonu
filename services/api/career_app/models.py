@@ -153,3 +153,18 @@ class Control(Base):
     __tablename__ = "system_control"
     id: Mapped[str] = mapped_column(String(20), primary_key=True)
     dispatch_paused: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Integration(Base):
+    __tablename__ = "integrations"
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class Delivery(Base):
+    __tablename__ = "deliveries"
+    id: Mapped[str] = mapped_column(ForeignKey("outbox.id"), primary_key=True)
+    provider_id: Mapped[str] = mapped_column(String(100))
+    thread_id: Mapped[str] = mapped_column(String(100), index=True)
+    replied: Mapped[bool] = mapped_column(Boolean, default=False)
+    event: Mapped[str] = mapped_column(String(40), default="awaiting_reply")

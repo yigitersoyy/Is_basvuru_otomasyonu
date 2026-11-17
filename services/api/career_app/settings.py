@@ -17,3 +17,8 @@ class Settings(BaseSettings):
     smtp_port: int = 1025
     mail_from: str = "candidate@example.test"
     max_upload_bytes: int = 10 * 1024 * 1024
+    gmail_client_id: str = ""
+    gmail_client_secret: SecretStr = SecretStr("")
+    gmail_redirect_uri: str = "http://localhost:8000/oauth/gmail/callback"
+    gmail_live_enabled: bool = False
+    searxng_url: str = "http://searxng:8080"

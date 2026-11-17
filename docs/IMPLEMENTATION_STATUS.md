@@ -1,50 +1,40 @@
-# Implementation status — v0.1
+# Implementation status — v0.2
 
-This is a working first increment of the architecture, not the complete autonomous application. Preparation and local testing are implemented; external outreach remains unimplemented.
+## Implemented in code
 
-## Implemented
+- Local Streamlit workspace: CV upload, original source viewing, profile/fact review, companies, public search, official-source research, vacancy/speculative imports, contact evidence, CV/email review, downloads, queueing, pause, suppression and conversation status.
+- PostgreSQL/Alembic persistence, locked Python dependencies and Docker/Windows setup.
+- Approved-content CV selection, local Ollama proposals, DOCX/PDF generation and hash-bound approval.
+- Gmail OAuth using PKCE/one-use state, encrypted refresh-token storage, authenticated sender identity and reconnect/disconnect controls.
+- Live dispatch with explicit enable switch, current inbox checks, approved-package gates, eligibility/language checks, target-country send windows, daily/spacing limits and no blind retries.
+- Gmail thread activity detection, company sequence cancellation, basic explicit opt-out/bounce suppression, stable Message-ID reconciliation and one reviewed follow-up after seven weekdays.
+- Bounded SearXNG search and pinned-public-IP official-site fetching with HTTPS/domain/size/redirect restrictions. Greenhouse/Ashby reading remains available.
+- Ten inactive n8n workflows connected to real API operations.
+- Encrypted checkpoint script using installed restic, manual restore runbook and readiness screen.
 
-- Compose foundation for PostgreSQL, API, Gotenberg, Mailpit, n8n and optional Ollama/Appsmith; loopback browser ports and private backend network.
-- Separate n8n/application database roles and an explicit initial Alembic migration.
-- Protected local secret generation, locked Python dependencies, Windows start/stop scripts and GitHub Actions checks.
-- CV PDF import, source hashes/pages, optional structured local-model extraction, manual fact entry and explicit approval/revocation.
-- Approved-statement selection for five role profiles. Historical content is selected unchanged rather than freely rewritten.
-- Company/role/country records, vacancy/speculative separation and public ATS readers.
-- Contact evidence storage, explicit confirmation and stale/guessed-contact blocks.
-- DOCX/PDF generation, text validation, page/size checks, manifests and authenticated downloads.
-- Exact package hash approval, edit/revision invalidation, outbox uniqueness, persistent pause, suppression and uncertain-send holds.
-- Local Mailpit dispatch code with a stable Message-ID and no external transport option.
-- Seven inactive n8n exports referencing real API endpoints.
+## Verified here
 
-## Verification performed in this development environment
+Behavior tests cover package/profile integrity, suppression, duplicate queueing, migrations, actual native LibreOffice document conversion, Gmail adapter success/uncertainty/reply/follow-up/OAuth-state behavior, blocked private research destinations and Streamlit page rendering.
 
-- Behavior tests cover fact evidence, missing skills/languages, speculative wording, hash approval, file tampering, revision invalidation, duplicate queueing, company sequence exclusion, contact evidence, suppression, pause and uncertain-send recovery.
-- Schema was applied to PostgreSQL 17.7 using Alembic-generated SQL. Database-role initialization was exercised. The final migration is also applied and compared with SQLAlchemy metadata by the automated tests.
-- Real DOCX generation and native LibreOffice PDF conversion were exercised with synthetic content, including a Turkish name; final PDF text is checked.
-- Compose syntax, loopback bindings, workflow-to-API routing and inactive workflow defaults are checked.
-- Optional Ollama/Appsmith image tags were checked via registry manifests, without downloading their large layers.
+Gmail tests use a mock provider. UI tests use mock API responses. These tests exercise application behavior; they do not establish that your Google account, Windows Docker networking or GPU inference are configured.
 
-## Environment limitations and checks still required
+## Required local setup and verification
 
-The development computer has approximately 8 GB of disk, no configured RTX GPU and no Gmail authorization. Downloading the n8n/Gotenberg layers exceeded its rootless Docker storage limit. Therefore:
+1. Start the entire stack on Windows. This cloud environment has approximately 8 GB disk and could not hold all Docker layers; the full Compose smoke test has not passed here.
+2. Download and benchmark the local model on your RTX 4060. No GPU is available here.
+3. Enter your Google OAuth client credentials locally and authorize Gmail. No account secrets or Gmail session are available to this task.
+4. Import and approve the actual CV facts, work-rights answers, contact evidence and first email package.
+5. Configure independent encrypted backup storage and perform a restore drill.
+6. Run a user-controlled test send, then a small reviewed company pilot before unattended operation.
 
-- Full Compose startup and the `scripts/smoke.py` Gotenberg/PostgreSQL/Mailpit roundtrip remain to be run on the Windows host.
-- n8n workflow import/activation has not been exercised in a running instance.
-- Appsmith has not been installed/configured into a finished user interface.
-- GPU inference quality/latency and local model extraction have not been benchmarked on the RTX 4060.
-- No live email, OAuth request or employer contact has been made.
+## Practical limits
 
-The smoke test is included for the local environment; unit tests use synthetic documents and a mocked transport where a real backend is unavailable. They do not establish live email delivery or safe concurrent behavior on SQLite. Production dispatch is designed for PostgreSQL row locks and a partial unique index.
+- Search is best-effort; source/identity review is required. There is no guaranteed free source for every employer or executive email.
+- Vacancy imports do not submit employer portal forms. Those need their own supported adapters or manual submission evidence.
+- Replies with new subjects outside known threads need manual Gmail review. Unclear replies and out-of-office activity conservatively stop follow-ups instead of making commitments automatically.
+- Explicit plain-text opt-out phrases and sender-based bounces are recognized; other replies are flagged for review. This is not a universal multilingual semantic classifier.
+- Follow-ups count weekdays, not national holidays, and need exact-package approval.
+- Role prioritization currently uses explained role-tag coverage, not the architecture's full weighted requirement model. Company selection and new wording still need review.
+- Full freeform policy-auto campaign generation, OCR for scanned CVs, automatic retention pruning and semantic company-wide agent research remain beyond this release. The current system can automatically dispatch approved packages through n8n; it does not invent or approve candidate facts or guessed contacts.
 
-## Next milestones
-
-1. Run the complete Docker smoke test on Windows and bind the local n8n credentials.
-2. Build and export the Appsmith pages using the setup contract; test review/download flows.
-3. Import Yiğit's CV into private runtime storage, confirm factual statements, work rights, languages, disclosure rules and preferences. Benchmark the chosen Ollama artifact and record its digest.
-4. Add bounded company research, permitted source fetch/cache, scored requirement extraction, contact discovery and official-channel fallbacks. Current ATS imports and pasted data do not provide company-wide autonomous discovery.
-5. Implement campaign policies, eligibility hard filters, timezone/business-day scheduling and source refreshes. Current role matching is tag coverage, not the architecture's weighted score.
-6. Implement Gmail OAuth, send reconciliation, incremental inbox synchronization, manual-reply detection, bounce/opt-out handling and a single follow-up. Add the corresponding provider contract tests before enabling a live dispatcher.
-7. Add encrypted backup/restore automation, source retention, independent health notifications and the full remaining workflow inventory.
-8. Complete the architecture acceptance matrix and a user-configured live pilot.
-
-No milestone should report `sent` merely because a test message reached Mailpit or a portal application package was prepared.
+The project is substantially more functional than v0.1. It must not be described as completely installed or fully autonomous before the local prerequisites and remaining capability gaps are addressed.

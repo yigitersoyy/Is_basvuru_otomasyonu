@@ -1,6 +1,6 @@
 # n8n setup
 
-Seven inactive workflow exports are included. They orchestrate implemented API operations; they do not stand in for the fifteen complete workflows from the architecture.
+Ten inactive workflow exports are included. They orchestrate implemented API operations; they do not stand in for the fifteen complete workflows from the architecture.
 
 1. Start the core stack, open `http://localhost:5678`, and create the instance owner account.
 2. Create a **Header Auth** credential named `Career API key`: Name `X-API-Key`, Value the private `API_KEY` from `.env`.
@@ -21,3 +21,7 @@ The webhook imports create companies/opportunities, import public boards or prep
 Successful execution bodies are not retained. Error executions can still contain personal data; retain them only as needed and do not export them into Git.
 
 Regenerate the source exports using `uv run python scripts/generate_workflows.py`. Imports are intended for the pinned n8n version in Compose. The exports have structural tests but could not be imported into a running n8n instance in the limited development environment; validate the import locally before activating schedules.
+
+## Gmail workflows
+
+After OAuth setup and a reviewed pilot configuration, bind credentials and activate **Career Gmail Sync** (five minutes), **Career Gmail Dispatch** (one minute; blocked unless live mode is enabled), and **Career Followup Planner** (hourly; creates review packages rather than sending them). The live dispatcher synchronizes relevant threads again before sending. Keep **Career Dispatch Test** inactive when testing the Gmail path so it does not consume the same queued package first.

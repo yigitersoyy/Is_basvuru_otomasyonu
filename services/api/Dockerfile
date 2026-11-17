@@ -11,4 +11,4 @@ COPY scripts /app/scripts
 RUN mkdir /app/artifacts && chown career:career /app/artifacts
 USER career
 ENV PYTHONPATH=/app/services/api
-CMD ["sh", "-c", "alembic upgrade head && uvicorn career_app.main:create_app --factory --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn career_app.main:create_app --factory --host 0.0.0.0 --port 8000 --no-access-log"]

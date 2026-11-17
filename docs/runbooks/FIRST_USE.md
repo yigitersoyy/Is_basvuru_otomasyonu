@@ -1,4 +1,6 @@
-# First use — v0.1
+The local interface at `http://localhost:8080` implements these actions with forms and review screens. The API paths below are also available for diagnostics and n8n. For live outreach, finish [Gmail setup](GMAIL.md) first; live sending remains disabled until configured.
+
+# First use — v0.2
 
 Start the stack as described in the root README. Open `http://localhost:8000/docs`, authorize with your private `API_KEY`, and use the following API operations in order. Every ID in these steps comes from an actual preceding response.
 
@@ -12,7 +14,7 @@ Start the stack as described in the root README. Open `http://localhost:8000/doc
 8. **Add a contact:** use `/v1/contacts` with source URL, source quote and an appropriate evidence type. Published-contact quotes must include the address. Inspect the source yourself, then call `/confirm`. No DNS lookup is presented as mailbox validation; automatic contact finding is not implemented yet.
 9. **Generate a package:** `/v1/packages` takes profile, opportunity and contact IDs. Only approved CV statements are included, unchanged. It produces JSON content, DOCX, PDF, an email draft and hashes. Missing converter, PDF overflow or missing text blocks package creation.
 10. **Review the exact output:** fetch `/v1/packages/{id}`, download both artifacts, read the email, and inspect the opportunity. The initial email template uses up to two experience/project statements and distinguishes speculative interest from a found vacancy. Use `PATCH /v1/packages/{id}` to improve the subject/body. New wording requires your fact check; the API cannot prove it is truthful.
-11. **Approve:** send the latest `package_hash` to `/approve`. Stale hashes, changed profiles, revoked facts, changed artifacts, stale contact evidence and suppressions block approval/queueing. Unknown work rights can remain in a manually reviewed introductory inquiry; do not submit mandatory eligibility answers without knowing them. This release cannot send to employers.
+11. **Approve:** send the latest `package_hash` to `/approve`. Stale hashes, changed profiles, revoked facts, changed artifacts, stale contact evidence and suppressions block approval/queueing. Unknown work rights can remain in a manually reviewed introductory inquiry; do not submit mandatory eligibility answers without knowing them. Live sending additionally requires an enabled Gmail account and all live dispatch gates.
 12. **Queue and test:** `/queue` creates one logical outbox entry. `/v1/outbox/dispatch-test` sends at most one item to local Mailpit. The message appears at `http://localhost:8025`; its status is `delivered_to_test`, never a claim of real inbox delivery.
 
 ## Useful examples
@@ -52,8 +54,8 @@ Speculative opportunity payload:
 - Approving or revoking profile facts increments the profile revision and invalidates existing packages for that profile. Finish fact review before generating packages.
 - Editing the email clears package approval and cancels pending work. Approve the new hash before queueing again.
 - An attempted/uncertain package is immutable; prepare a new version only after resolving the previous outcome.
-- `/v1/outbox/pause` persists a global dispatch pause and cancels pending entries. `/resume-test` enables only the local test dispatcher. In-flight attempts cannot be recalled.
+- `/v1/outbox/pause` persists a global dispatch pause and cancels pending entries. `/resume-test` clears the global pause; Gmail still requires its separately enabled live setting. In-flight attempts cannot be recalled.
 - Suppress a contact or company using `/v1/suppressions`. This cancels affected pending items and blocks future queueing.
-- Interrupted attempts older than five minutes become `send_unknown` through `/v1/outbox/recover`. They are never automatically retried. Gmail-based reconciliation is a later milestone.
+- Interrupted attempts older than five minutes become `send_unknown` through `/v1/outbox/recover`. They are never automatically retried. Use Gmail synchronization to reconcile an uncertain live attempt; never force a resend.
 
 No automatic facts are imported from public profile sites, no work rights are assumed, and no original CV is committed to Git.
